@@ -35,24 +35,60 @@ const show = async function (req, res) {
     res.status(500).send(err)
   }
 }
-
+// SOLUCION
 const create = async function (req, res) {
-  let newProduct = Product.build(req.body)
   try {
+    let newProduct = Product.build(req.body)
+    if (typeof req.file !== 'undefined') {
+      newProduct.image = req.file.path
+    }
     newProduct = await newProduct.save()
+    updateRestaurantInexpensiveness(newProduct.restaurantId)
     res.json(newProduct)
   } catch (err) {
-    res.status(500).send(err)
+    if (err.name.includes('ValidationError')) {
+      res.status(422).send(err)
+    } else {
+      res.status(500).send(err)
+    }
+  }
+}
+
+const updateRestaurantInexpensiveness = async function (restaurantId) {
+  const queryResultOtherRestaurantsAvgPrice = await Product.findOne({
+    where: {
+      restaurantId: { [Sequelize.Op.ne]: restaurantId }
+    },
+    attributes: [
+      [Sequelize.fn('AVG', Sequelize.col('price')), 'avgPrice']
+    ]
+  })
+  const queryResultCurrentRestaurantAvgPrice = await Product.findOne({
+    where: {
+      restaurantId
+    },
+    attributes: [
+      [Sequelize.fn('AVG', Sequelize.col('price')), 'avgPrice']
+    ]
+  })
+  if (queryResultCurrentRestaurantAvgPrice !== null && queryResultOtherRestaurantsAvgPrice !== null) {
+    const avgPriceOtherRestaurants = queryResultOtherRestaurantsAvgPrice.dataValues.avgPrice
+    const avgPriceCurrentRestaurant = queryResultCurrentRestaurantAvgPrice.dataValues.avgPrice
+    const isInexpensive = avgPriceCurrentRestaurant < avgPriceOtherRestaurants
+    Restaurant.update({ isInexpensive }, { where: { id: restaurantId } })
   }
 }
 
 const update = async function (req, res) {
   try {
+    if (typeof req.file !== 'undefined') {
+      req.body.image = req.file.path
+    }
     await Product.update(req.body, { where: { id: req.params.productId } })
     const updatedProduct = await Product.findByPk(req.params.productId)
     res.json(updatedProduct)
   } catch (err) {
-    res.status(500).send(err)
+    res.status(404).send(err)
   }
 }
 
